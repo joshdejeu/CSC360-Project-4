@@ -67,7 +67,7 @@ typedef struct
 } Buffer;
 ```
 
-####C Pthreads
+#### C Pthreads
 
 ```c
 #include "buffer.h"
@@ -109,4 +109,4 @@ $$\(\sqrt{3x-1}+(1+x)^2\)$$
                     
 $$\sin(\alpha)^{\theta}=\sum_{i=0}^{n}(x^i + \cos(f))$$
                 
-###End
+### End
