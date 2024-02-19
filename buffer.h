@@ -14,23 +14,22 @@ typedef struct
     pthread_mutex_t mutex;
 } Buffer;
 
-void buffer_initialize(Buffer *buffer, int *buffer_size);
+void buffer_initialize(Buffer *buffer);
 bool buffer_insert_item(Buffer *buffer, buffer_item item);
 bool buffer_remove_item(Buffer *buffer);
 
-void buffer_initialize(Buffer *buffer, int *buffer_size)
+void buffer_initialize(Buffer *buffer)
 {
     // Allocate memory to the buffer
-    buffer->buffer = malloc(*buffer_size * sizeof(buffer_item));
-    buffer->buffer_size = *buffer_size;
-    for (int i = 0; i < *buffer_size; i++)
+    buffer->buffer = malloc(buffer->buffer_size * sizeof(buffer_item));
+    for (int i = 0; i < buffer->buffer_size; i++)
     {
         buffer->buffer[i] = -1;
     }
     buffer->in = 0;
     buffer->out = 0;
     sem_init(&buffer->full, 0, 0);
-    sem_init(&buffer->empty, 0, *buffer_size);
+    sem_init(&buffer->empty, 0, buffer->buffer_size);
     pthread_mutex_init(&buffer->mutex, NULL);
 };
 

@@ -37,7 +37,8 @@ int main(int argc, char *argv[])
 
     srand(time(NULL));
     Buffer myBuffer;
-    buffer_initialize(&myBuffer, &buffer_size); // semaphores + mutex
+    myBuffer.buffer_size = buffer_size; // used in initializer & (in++/out++) % buffer_size
+    buffer_initialize(&myBuffer);       // semaphores + mutex
 
     pthread_t tid_p[number_of_producers];
     pthread_t tid_c[number_of_consumers];
