@@ -19,8 +19,8 @@
 
 
 
-#### The Buffer struct
-buffer.
+## The Buffer struct
+<**buffer.h**>
 ```h
 #define BUFFER_SIZE 5
 typedef struct
@@ -34,8 +34,8 @@ typedef struct
 } Buffer;
 ```
 
-#### C Pthreads
-osproj4.c
+## C Pthreads
+<**osproj4.c**>
 ```c
 #include "buffer.h"
 #include <pthread.h>
