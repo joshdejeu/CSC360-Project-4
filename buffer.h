@@ -56,11 +56,7 @@ bool buffer_insert_item(Buffer *buffer, buffer_item item, int consumerId)
     buffer->buffer[buffer->in++ % BUFFER_SIZE] = item;
     int numOfBuffersOccupied;
     sem_getvalue(&buffer->empty, &numOfBuffersOccupied);
-    if (numOfBuffersOccupied == 0)
-    {
-        buffer->times_buffer_was_empty++;
-    }
-    else if (numOfBuffersOccupied == BUFFER_SIZE)
+    if (numOfBuffersOccupied == BUFFER_SIZE)
     {
         printf("All buffers full.  Producer %d waits.\n\n", consumerId);
         buffer->times_buffer_was_full++;
@@ -88,14 +84,9 @@ bool buffer_remove_item(Buffer *buffer, int consumerId)
         printf("All buffers empty.  Consumer %d waits.\n\n", consumerId);
         buffer->times_buffer_was_empty++;
     }
-    else if (numOfBuffersOccupied == BUFFER_SIZE)
-    {
-        buffer->times_buffer_was_full++;
-    }
     int numberConsumed = buffer->buffer[buffer->out++ % BUFFER_SIZE];
     buffer->items_consumed++;
     printf("Consumer %d reads %d\n", consumerId, numberConsumed);
-    numberConsumed = -1;
     pthread_mutex_unlock(&buffer->mutex);
     sem_post(&buffer->empty);
     return true;
