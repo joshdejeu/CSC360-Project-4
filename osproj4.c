@@ -13,12 +13,12 @@ void *consumer(void *param);
 void printBuffer(Buffer *buffer, bool porc, int indexOfEvent, int num);
 
 pthread_mutex_t print_buffer_priv;
-int simulation_time = 5;      // Default simulation time
-int max_thread_sleep = 5;     // Default max thread sleep time
-int number_of_producers = 1;  // Default producer thread count
-int number_of_consumers = 1;  // Default consumer thread count
-bool showBufferState = false; // Default show buffer state
-void printStats();            // Shows stats after simulation ends
+int simulation_time = 5;         // Default simulation time
+int max_thread_sleep = 5;        // Default max thread sleep time
+int number_of_producers = 1;     // Default producer thread count
+int number_of_consumers = 1;     // Default consumer thread count
+bool showBufferState = false;    // Default show buffer state
+void printStats(Buffer *buffer); // Shows stats after simulation ends
 
 // args
 // [1] - simulation time
@@ -39,13 +39,13 @@ int main(int argc, char *argv[])
     simulation_time = atoi(argv[1]);
     max_thread_sleep = atoi(argv[2]);
     number_of_producers = atoi(argv[3]);
-    number_of_producers = atoi(argv[4]);
+    number_of_consumers = atoi(argv[4]);
     showBufferState = strcmp(argv[5], "yes") == 0;
 
     pthread_mutex_init(&print_buffer_priv, NULL);
 
-    srand(time(NULL)); // seed random time
-    Buffer myBuffer;
+    srand(time(NULL));            // seed random time
+    Buffer myBuffer;              // initialize a buffer
     buffer_initialize(&myBuffer); // semaphores + mutex
 
     pthread_t tid_p[number_of_producers];
@@ -74,6 +74,7 @@ int main(int argc, char *argv[])
         pthread_cancel(tid_c[i]);
     }
 
+    // join all threads back together
     for (int i = 0; i < number_of_producers; i++)
     {
         pthread_join(tid_p[i], NULL);
@@ -83,20 +84,22 @@ int main(int argc, char *argv[])
         pthread_join(tid_c[i], NULL);
     }
 
-    printStats();
+    printStats(&myBuffer);
     exit(0);
 }
 
-void *producer(void *bufferArg)
+void *producer(void *myArg)
 {
-    Buffer *buffer = (Buffer *)bufferArg; // cast bufferArg to Buffer*
+    Buffer *buffer = (Buffer *)myArg; // cast myArg to Buffer*
+    pthread_t threadId = pthread_self();
+
     buffer_item randNum;
     while (1)
     {
         int random_number = rand() % (max_thread_sleep + 1);
         sleep(random_number);
         randNum = rand() % 100;
-        bool succesOrFail = buffer_insert_item(buffer, randNum);
+        bool succesOrFail = buffer_insert_item(buffer, randNum, threadId);
 
         pthread_mutex_lock(&print_buffer_priv); // temp lock printing privs
         // succesOrFail ? printf("\033[32mSUCCESS INSERT") : printf("\033[31mINSERT FAILURE");
@@ -107,15 +110,16 @@ void *producer(void *bufferArg)
     pthread_exit(0);
 }
 
-void *consumer(void *bufferArg)
+void *consumer(void *myArg)
 {
-    Buffer *buffer = (Buffer *)bufferArg; // cast bufferArg to Buffer*
+    Buffer *buffer = (Buffer *)myArg; // cast myArg to Buffer*
+    pthread_t threadId = pthread_self();
     while (1)
     {
         int random_number = rand() % (max_thread_sleep + 1);
         sleep(random_number);
         buffer_item item = buffer->buffer[buffer->out]; // no priviledges req to read
-        bool succesOrFail = buffer_remove_item(buffer, 111);
+        bool succesOrFail = buffer_remove_item(buffer, threadId);
 
         pthread_mutex_lock(&print_buffer_priv); // temp lock printing privs
         // succesOrFail ? printf("\033[32mSUCCESS REMOVE") : printf("\033[31mREMOVAL FAILED");
@@ -169,22 +173,36 @@ void printBuffer(Buffer *buffer, bool porc, int indexOfEvent, int num)
     printf("\n\n");
 }
 
-void printStats()
+void printStats(Buffer *buffer)
 {
+    int threadCounter = 1;
+    int num_of_buffers_occupied;
+    sem_getvalue(&buffer->empty, &num_of_buffers_occupied);
+    printf("\n");
     printf("PRODUCER / CONSUMER SIMULATION COMPLETE\n");
     printf("=======================================\n");
-    printf("Simulation Time:                       %d\n", simulation_time);
-    printf("Maximum Thread Sleep Time:             %d\n", max_thread_sleep);
-    printf("Number of Producer Threads:            %d\n", number_of_producers);
-    printf("Number of Consumer Threads:            %d\n", number_of_consumers);
-    printf("Size of Buffer:                        %d\n", BUFFER_SIZE);
-    printf("Total Number of Items Produced:        %d\n", 0);
-    printf("    here keep count fo each thread     %d\n", 0);
-    printf("Total Number of Items Consumed:        %d\n", 0);
-    printf("    here keep count fo each thread     %d\n", 0);
+    printf("Simulation Time:                        %d\n", simulation_time);
+    printf("Maximum Thread Sleep Time:              %d\n", max_thread_sleep);
+    printf("Number of Producer Threads:             %d\n", number_of_producers);
+    printf("Number of Consumer Threads:             %d\n", number_of_consumers);
+    printf("Size of Buffer:                         %d\n", BUFFER_SIZE);
+    printf("\n");
+    printf("Total Number of Items Produced:         %d\n", buffer->items_produced);
+    for (threadCounter; threadCounter < number_of_producers + 1; threadCounter++)
+    {
+        printf("    Thread %d:                           %d\n", threadCounter, 0);
+    }
+    printf("\n");
+    printf("Total Number of Items Consumed:         %d\n", buffer->items_consumed);
+    for (threadCounter; threadCounter < (number_of_producers + number_of_consumers + 1); threadCounter++)
+    {
+        printf("    Thread %d:                           %d\n", threadCounter, 0);
+    }
     //   Thread 3:				22
     //   Thread 4:				26
-    printf("Number Of Items Remaining in Buffer:   %d\n", 0);
-    printf("Number Of Times Buffer Was Full:       %d\n", 0);
-    printf("Number Of Times Buffer Was Empty:      %d\n", 0);
+    printf("\n");
+    printf("Number Of Items Remaining in Buffer:    %d\n", num_of_buffers_occupied);
+    printf("Number Of Times Buffer Was Full:        %d\n", buffer->times_buffer_was_full);
+    printf("Number Of Times Buffer Was Empty:       %d\n", buffer->times_buffer_was_empty);
+    printf("\n");
 }
