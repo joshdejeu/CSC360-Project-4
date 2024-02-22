@@ -6,22 +6,26 @@
 #include <stdbool.h>
 #include "buffer.h"
 #include <time.h> //for srand seed
-
-#define number_of_producers 1
-#define number_of_consumers 1
+#include <string.h>
 
 void *producer(void *param);
 void *consumer(void *param);
 void printBuffer(Buffer *buffer, bool porc, int indexOfEvent, int num);
-double randomFloat()
-{
-    return (double)rand() / (double)RAND_MAX * 2.5;
-}
 
 pthread_mutex_t print_buffer_priv;
-int buffer_size = 5; // Default buffer size
+int simulation_time = 5;         // Default simulation time
+int max_thread_sleep = 5;        // Default max thread sleep time
+int number_of_producers = 1;     // Default producer thread count
+int number_of_consumers = 1;     // Default consumer thread count
+bool showBufferState = false;    // Default show buffer state
+void printStats(Buffer *buffer); // Shows stats after simulation ends
 
-// sim sleep, max pc sleep, p thread, c thread, yn
+// args
+// [1] - simulation time
+// [2] - max thread sleep time
+// [3] - number of producer threads
+// [4] - number of consumer threads
+// [5] - yes/no to show buffer after every event
 int main(int argc, char *argv[])
 {
     if (argc < 2)
@@ -31,14 +35,18 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    buffer_size = atoi(argv[1]);
+    // get cmd line args
+    simulation_time = atoi(argv[1]);
+    max_thread_sleep = atoi(argv[2]);
+    number_of_producers = atoi(argv[3]);
+    number_of_consumers = atoi(argv[4]);
+    showBufferState = strcmp(argv[5], "yes") == 0;
 
     pthread_mutex_init(&print_buffer_priv, NULL);
 
-    srand(time(NULL));
-    Buffer myBuffer;
-    myBuffer.buffer_size = buffer_size; // used in initializer & (in++/out++) % buffer_size
-    buffer_initialize(&myBuffer);       // semaphores + mutex
+    srand(time(NULL));            // seed random time
+    Buffer myBuffer;              // initialize a buffer
+    buffer_initialize(&myBuffer); // semaphores + mutex
 
     pthread_t tid_p[number_of_producers];
     pthread_t tid_c[number_of_consumers];
@@ -56,7 +64,17 @@ int main(int argc, char *argv[])
     }
 
     // terminate all threads after N time
+    sleep(simulation_time);
+    for (int i = 0; i < number_of_producers; i++)
+    {
+        pthread_cancel(tid_p[i]);
+    }
+    for (int i = 0; i < number_of_consumers; i++)
+    {
+        pthread_cancel(tid_c[i]);
+    }
 
+    // join all threads back together
     for (int i = 0; i < number_of_producers; i++)
     {
         pthread_join(tid_p[i], NULL);
@@ -66,46 +84,47 @@ int main(int argc, char *argv[])
         pthread_join(tid_c[i], NULL);
     }
 
-    sleep(5);
+    printStats(&myBuffer);
     exit(0);
 }
 
-void *producer(void *bufferArg)
+void *producer(void *myArg)
 {
-    Buffer *buffer = (Buffer *)bufferArg; // cast bufferArg to Buffer*
+    Buffer *buffer = (Buffer *)myArg; // cast myArg to Buffer*
+    pthread_t threadId = pthread_self();
+
     buffer_item randNum;
     while (1)
     {
-        sleep(randomFloat());
+        int random_number = rand() % (max_thread_sleep + 1);
+        sleep(random_number);
         randNum = rand() % 100;
-        bool succesOrFail = buffer_insert_item(buffer, randNum);
+        bool succesOrFail = buffer_insert_item(buffer, randNum, threadId);
 
         pthread_mutex_lock(&print_buffer_priv); // temp lock printing privs
-        printf("╭────────────────╮\n");
-        printf("│ ");
-        succesOrFail ? printf("\033[32mSUCCESS INSERT") : printf("\033[31mINSERT FAILURE");
-        printf("\033[0m │\n");
-        printBuffer(buffer, true, buffer->in, randNum);
+        // succesOrFail ? printf("\033[32mSUCCESS INSERT") : printf("\033[31mINSERT FAILURE");
+        // printf("\033[0m \n");
+        showBufferState ? printBuffer(buffer, true, buffer->in, randNum) : printf("\n");
         pthread_mutex_unlock(&print_buffer_priv); // unlock printing privs
     }
     pthread_exit(0);
 }
 
-void *consumer(void *bufferArg)
+void *consumer(void *myArg)
 {
-    Buffer *buffer = (Buffer *)bufferArg; // cast bufferArg to Buffer*
+    Buffer *buffer = (Buffer *)myArg; // cast myArg to Buffer*
+    pthread_t threadId = pthread_self();
     while (1)
     {
-        sleep(randomFloat());
+        int random_number = rand() % (max_thread_sleep + 1);
+        sleep(random_number);
         buffer_item item = buffer->buffer[buffer->out]; // no priviledges req to read
-        bool succesOrFail = buffer_remove_item(buffer);
+        bool succesOrFail = buffer_remove_item(buffer, threadId);
 
         pthread_mutex_lock(&print_buffer_priv); // temp lock printing privs
-        printf("╭────────────────╮\n");
-        printf("│ ");
-        succesOrFail ? printf("\033[32mSUCCESS REMOVE") : printf("\033[31mREMOVAL FAILED");
-        printf("\033[0m │\n");
-        printBuffer(buffer, false, buffer->out, item);
+        // succesOrFail ? printf("\033[32mSUCCESS REMOVE") : printf("\033[31mREMOVAL FAILED");
+        // printf("\033[0m \n");
+        showBufferState ? printBuffer(buffer, false, buffer->out, item) : printf("\n");
         pthread_mutex_unlock(&print_buffer_priv); // unlock printing privs
     }
     pthread_exit(0);
@@ -117,68 +136,73 @@ void *consumer(void *bufferArg)
 void printBuffer(Buffer *buffer, bool porc, int indexOfEvent, int num)
 {
 
-    printf("\033[0m");
-    indexOfEvent = (indexOfEvent - 1) % buffer_size;
+    int numOfBuffersOccupied;
+    sem_getvalue(&buffer->empty, &numOfBuffersOccupied);
+    printf("(buffers occupied: %d)\n", (BUFFER_SIZE - numOfBuffersOccupied));
+
+    indexOfEvent = (indexOfEvent - 1) % BUFFER_SIZE;
     const char *eventContent = porc ? "W" : "R";
-    char slotContents[buffer_size][3];
-    for (int i = 0; i < buffer_size; i++)
+    char slotContents[BUFFER_SIZE][3];
+    for (int i = 0; i < BUFFER_SIZE; i++)
     { // empty slots
         slotContents[i][0] = '\0';
     }
-    if (indexOfEvent >= 0 && indexOfEvent < buffer_size)
+    if (indexOfEvent >= 0 && indexOfEvent < BUFFER_SIZE)
     {
         snprintf(slotContents[indexOfEvent], sizeof(slotContents[indexOfEvent]), "%s", eventContent);
     }
 
-    // correcting top border length
-    printf("├────────────────┴");
-    if (buffer_size > 3)
-    {
-        for (int i = 0; i < buffer_size - 4; i++)
-        {
-            printf("─────");
-        }
-        printf("───╮\n");
-    }
-    else
-    {
-        printf("╮\n");
-    }
-
-    printf("│");
+    printf("buffers: ");
     // Buffer items
-    for (int i = 0; i < buffer_size; i++)
+    for (int i = 0; i < BUFFER_SIZE; i++)
     {
         printf(" %-4d", buffer->buffer[i]);
     }
-    printf("│\n│");
+    printf("\n\t");
     // Buffer item platform
-    for (int i = 0; i < buffer_size; i++)
+    for (int i = 0; i < BUFFER_SIZE; i++)
     { // empty slots
-        printf(" --- ");
+        printf("  ---");
     }
-    printf("│\n│");
+    printf("\n\t");
     // RW event under platform
-    for (int i = 0; i < buffer_size; i++)
+    for (int i = 0; i < BUFFER_SIZE; i++)
     { // empty slots
         printf("   %-2s", slotContents[i]);
     }
-    printf("│\n");
+    printf("\n\n");
+}
 
-    porc ? printf("│ \033[44m") : printf("│ \033[41m"); // choose produce or consume color
-    porc ? printf(" Produced:") : printf(" Consumed:");
-    printf(" %-3d\033[0m", num); // reset colors
-    for (int i = 0; i < buffer_size - 3; i++)
+void printStats(Buffer *buffer)
+{
+    int threadCounter = 1;
+    int num_of_buffers_occupied;
+    sem_getvalue(&buffer->empty, &num_of_buffers_occupied);
+    printf("\n");
+    printf("PRODUCER / CONSUMER SIMULATION COMPLETE\n");
+    printf("=======================================\n");
+    printf("Simulation Time:                        %d\n", simulation_time);
+    printf("Maximum Thread Sleep Time:              %d\n", max_thread_sleep);
+    printf("Number of Producer Threads:             %d\n", number_of_producers);
+    printf("Number of Consumer Threads:             %d\n", number_of_consumers);
+    printf("Size of Buffer:                         %d\n", BUFFER_SIZE);
+    printf("\n");
+    printf("Total Number of Items Produced:         %d\n", buffer->items_produced);
+    for (threadCounter; threadCounter < number_of_producers + 1; threadCounter++)
     {
-        printf("     ");
+        printf("    Thread %d:                           %d\n", threadCounter, 0);
     }
-    printf("│\n");
-
-    // correcting bottom border length
-    printf("╰─────────────────");
-    for (int i = 0; i < buffer_size - 4; i++)
+    printf("\n");
+    printf("Total Number of Items Consumed:         %d\n", buffer->items_consumed);
+    for (threadCounter; threadCounter < (number_of_producers + number_of_consumers + 1); threadCounter++)
     {
-        printf("─────");
+        printf("    Thread %d:                           %d\n", threadCounter, 0);
     }
-    printf("───╯\n\n");
+    //   Thread 3:				22
+    //   Thread 4:				26
+    printf("\n");
+    printf("Number Of Items Remaining in Buffer:    %d\n", num_of_buffers_occupied);
+    printf("Number Of Times Buffer Was Full:        %d\n", buffer->times_buffer_was_full);
+    printf("Number Of Times Buffer Was Empty:       %d\n", buffer->times_buffer_was_empty);
+    printf("\n");
 }
